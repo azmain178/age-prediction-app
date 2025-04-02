@@ -132,3 +132,5 @@ if st.button("Predict Age"):
                 
             # Display result
             st.success(f"Predicted Age: {predicted_age:.1f} years")
+        except Exception as e:
+            st.error(f"Error during prediction: {str(e)}")
