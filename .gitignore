@@ -1,0 +1,1 @@
+-e "*.pyc\n__pycache__/\n.env\n.venv\nvenv/\nENV/\n.idea/\n.DS_Store" 
