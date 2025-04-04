@@ -9,7 +9,12 @@ import xgboost as xgb
 import streamlit as st
 from io import BytesIO
 
+# Enable debug mode
+debug = True
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if debug:
+    st.write(f"Using device: {device}")
 
 # Set up image transformations
 val_transforms = transforms.Compose([
@@ -21,17 +26,24 @@ val_transforms = transforms.Compose([
 @st.cache_resource
 def load_models():
     try:
+        if debug:
+            st.write("Loading models...")
+        
         # Load face model
         face_model = models.resnet50(pretrained=False)
         face_model.fc = nn.Sequential(
             nn.Dropout(0.5),
             nn.Linear(face_model.fc.in_features, 1)
         )
+        if debug:
+            st.write("Loading face_model.pth...")
         face_model.load_state_dict(torch.load('face_model.pth', map_location=device))
         face_model = face_model.to(device)
         face_model.eval()
 
         # Load other models
+        if debug:
+            st.write("Loading biomarker models...")
         bio_model = xgb.XGBRegressor()
         bio_model.load_model('bio_model.json')
 
@@ -41,43 +53,73 @@ def load_models():
         stack_model = xgb.XGBRegressor()
         stack_model.load_model('stack_model.json')
 
+        if debug:
+            st.write("All models loaded successfully!")
         return face_model, bio_model, face_adjuster, stack_model
     except Exception as e:
         st.error(f"Error loading models: {str(e)}")
         raise
 
 def preprocess_image(image_data):
-    image = Image.open(BytesIO(image_data)).convert("RGB")
-    image = val_transforms(image)
-    return image.unsqueeze(0).to(device)
+    try:
+        image = Image.open(BytesIO(image_data)).convert("RGB")
+        if debug:
+            st.write(f"Image size before resize: {image.size}")
+        image = val_transforms(image)
+        if debug:
+            st.write(f"Tensor shape after transform: {image.shape}")
+        return image.unsqueeze(0).to(device)
+    except Exception as e:
+        st.error(f"Error preprocessing image: {str(e)}")
+        raise
 
 def preprocess_biomarkers(biomarkers_dict):
-    required_keys = ['Height (cm) ', 'Weight (kg)', 'BMI', 'Blood Oxygen', 
-                    'Blood Sugar(mg/dl)', 'Systolic_BP', 'Diastolic_BP']
-    bio_data = pd.DataFrame([biomarkers_dict], columns=required_keys)
-    return bio_data
+    try:
+        required_keys = ['Height (cm) ', 'Weight (kg)', 'BMI', 'Blood Oxygen', 
+                        'Blood Sugar(mg/dl)', 'Systolic_BP', 'Diastolic_BP']
+        bio_data = pd.DataFrame([biomarkers_dict], columns=required_keys)
+        if debug:
+            st.write("Biomarker data:")
+            st.write(bio_data)
+        return bio_data
+    except Exception as e:
+        st.error(f"Error preprocessing biomarkers: {str(e)}")
+        raise
 
 def predict_age(image, biomarkers_dict):
-    # Load models (they will be cached by Streamlit)
-    face_model, bio_model, face_adjuster, stack_model = load_models()
-    
-    # Preprocess inputs
-    image_tensor = preprocess_image(image)
-    bio_data = preprocess_biomarkers(biomarkers_dict)
+    try:
+        # Load models (they will be cached by Streamlit)
+        face_model, bio_model, face_adjuster, stack_model = load_models()
+        
+        # Preprocess inputs
+        image_tensor = preprocess_image(image)
+        bio_data = preprocess_biomarkers(biomarkers_dict)
 
-    # Face prediction
-    with torch.no_grad():
-        face_pred = face_model(image_tensor).cpu().numpy().flatten()[0]
-    face_pred_adj = face_adjuster.predict(np.array([[face_pred]]))[0]
+        # Face prediction
+        with torch.no_grad():
+            face_pred = face_model(image_tensor).cpu().numpy().flatten()[0]
+            if debug:
+                st.write(f"Raw face prediction: {face_pred}")
+        
+        face_pred_adj = face_adjuster.predict(np.array([[face_pred]]))[0]
+        if debug:
+            st.write(f"Adjusted face prediction: {face_pred_adj}")
 
-    # Biomarkers prediction
-    bio_pred = bio_model.predict(bio_data)[0]
+        # Biomarkers prediction
+        bio_pred = bio_model.predict(bio_data)[0]
+        if debug:
+            st.write(f"Biomarkers prediction: {bio_pred}")
 
-    # Hybrid prediction
-    stack_input = np.column_stack((face_pred_adj, bio_pred))
-    hybrid_pred = stack_model.predict(stack_input)[0]
+        # Hybrid prediction
+        stack_input = np.column_stack((face_pred_adj, bio_pred))
+        hybrid_pred = stack_model.predict(stack_input)[0]
+        if debug:
+            st.write(f"Final hybrid prediction: {hybrid_pred}")
 
-    return hybrid_pred
+        return hybrid_pred
+    except Exception as e:
+        st.error(f"Error in prediction: {str(e)}")
+        raise
 
 # Streamlit UI
 st.set_page_config(
@@ -96,7 +138,10 @@ with col1:
     st.subheader("Face Image")
     uploaded_file = st.file_uploader("Choose a face image...", type=["jpg", "jpeg", "png"])
     if uploaded_file is not None:
-        st.image(uploaded_file, caption="Uploaded Image", use_column_width=True)
+        # Read the file once and store its contents
+        image_bytes = uploaded_file.read()
+        # Display the image using the bytes
+        st.image(BytesIO(image_bytes), caption="Uploaded Image", use_column_width=True)
 
 with col2:
     st.subheader("Biomarker Data")
@@ -125,12 +170,15 @@ if st.button("Predict Age"):
                 'Diastolic_BP': diastolic_bp
             }
             
-            # Make prediction
+            # Make prediction using the stored image bytes
             with st.spinner("Predicting age..."):
-                image_bytes = uploaded_file.read()
                 predicted_age = predict_age(image_bytes, biomarkers)
                 
             # Display result
             st.success(f"Predicted Age: {predicted_age:.1f} years")
         except Exception as e:
             st.error(f"Error during prediction: {str(e)}")
+            if debug:
+                st.error(f"Full error details: {str(e)}")
+                import traceback
+                st.error(traceback.format_exc())
