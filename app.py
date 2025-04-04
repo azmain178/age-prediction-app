@@ -1,3 +1,4 @@
+# Import non-streamlit packages first
 import os
 import numpy as np
 import pandas as pd
@@ -6,8 +7,18 @@ import torch.nn as nn
 from torchvision import models, transforms
 from PIL import Image
 import xgboost as xgb
-import streamlit as st
 from io import BytesIO
+import traceback
+
+# Import streamlit last
+import streamlit as st
+
+# Must be the very first Streamlit command
+st.set_page_config(
+    page_title="Age Prediction",
+    page_icon="👤",
+    layout="wide"
+)
 
 # Enable debug mode
 debug = True
@@ -122,12 +133,6 @@ def predict_age(image, biomarkers_dict):
         raise
 
 # Streamlit UI
-st.set_page_config(
-    page_title="Age Prediction",
-    page_icon="👤",
-    layout="wide"
-)
-
 st.title("Age Prediction from Face Image and Biomarkers")
 st.write("Upload a face image and enter biomarker data to predict age")
 
@@ -180,5 +185,4 @@ if st.button("Predict Age"):
             st.error(f"Error during prediction: {str(e)}")
             if debug:
                 st.error(f"Full error details: {str(e)}")
-                import traceback
                 st.error(traceback.format_exc())
